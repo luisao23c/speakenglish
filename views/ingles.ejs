@@ -338,14 +338,24 @@ function isSpanish(text){
 
 function pickVoice(lang){
   var all=speechSynthesis.getVoices();
-  // Direct filter by lang tag
-  var pool=all.filter(function(v){return lang==="es"?/^es/.test(v.lang):/^en/.test(v.lang)});
-  if(!pool.length)pool=lang==="es"?_esVoices:_enVoices;
-  if(!pool.length)return null;
-  // Prefer natural-sounding voices
-  var preferred=pool.filter(function(v){return/Google|Microsoft|Samantha|Paulina|Helena|Monica|Google UK|Zira|David|Mark/.test(v.name)});
-  if(!preferred.length)preferred=pool;
-  return preferred[0]||pool[0]||null;
+  if(!all.length)return null;
+  if(lang==="es"){
+    // Prefer es-MX > es > any Spanish
+    var mx=all.filter(function(v){return/^es-MX/i.test(v.lang)});
+    if(mx.length)return mx[0];
+    var es=all.filter(function(v){return/^es/i.test(v.lang)});
+    if(es.length)return es[0];
+    return null;
+  }else{
+    // Prefer en-US > en > any English
+    var us=all.filter(function(v){return/^en-US/i.test(v.lang)});
+    if(us.length)return us[0];
+    var uk=all.filter(function(v){return/^en-GB/i.test(v.lang)});
+    if(uk.length)return uk[0];
+    var en=all.filter(function(v){return/^en/i.test(v.lang)});
+    if(en.length)return en[0];
+    return null;
+  }
 }
 
 function speak(text){
@@ -371,7 +381,7 @@ function speak(text){
   var v=pickVoice(lang);
   if(v){
     u.voice=v;
-    u.lang=v.lang;  // Use the voice's actual language tag
+    // Keep u.lang as es-MX or en-US for correct accent
   }
   
   setSpk(true);
