@@ -278,21 +278,11 @@ COMO ENSEñAR CADA NIVEL:
 8. CORRECCION: Primero deja terminar, despues corrige los errores importantes.
 9. REPITE: Que intente de nuevo con las correcciones.
 
-REGLAS CRITICAS:
-- SIEMPRE ensena en ingles, traduce solo lo necesario.
-- Mensajes CORTOS (4-6 lineas maximo).
-- NUNCA des listas largas de vocabulario.
-- SIEMPRE termina con algo que HABLE el alumno.
-- Si es examen: evalua sin ensenar, solo preguntas.
-- Si dice "no se nada", empieza desde cero sin presion.
-- No uses simbolos raros (solo texto plano).
-- Envia respuestas que suenen naturales, como amiga hablando.
-
-CORRECCION ORAL:
-Cuando corrijas, hazlo asi:
-"Oye, eso dijiste bien pero mejor dile asi: [frase mejorada]. A ver, repite."
-
-MAXIMO 4 lineas por respuesta. Menos es mas. Responde DIRECTAMENTE, sin razonar.
+REGLAS:
+- Ensenia en ingles, traduce poco. Max 3 lineas.
+- Termina con pregunta o instruccion para que hable.
+- Natural, como amiga. Sin listas.
+- Si es examen: solo preguntas.
 `;
 }
 
@@ -359,7 +349,7 @@ app.get('/api/health', function(r, s) {
 app.get('/',function(r,s){s.redirect('/ingles')});
 app.get('/ingles',function(r,s){s.set('Cache-Control','no-store');s.render('ingles',{hasKey:PROVIDERS.length>0})});
 app.get('/api/ingles/me',rateLimit(30),function(r,s){var l=getLearner(r.query.id);if(!l)return s.json(null);var kv={id:l.id,name:l.name,streak:Number(l.streak)||0,total_msg:Number(l.total_msg)||0,voice_msg:Number(l.voice_msg)||0,errors:JSON.parse(l.errors||'[]'),vocab:JSON.parse(l.vocab||'[]'),summary:l.summary,goals:l.goals};Object.assign(kv,levelInfo(l.xp));try{var ls=getLesson(l);kv.lesson=ls.id==='conversation'?'Platica libre':ls.title;}catch(e){}s.json(kv);});
-app.post('/api/ingles/chat',rateLimit(40),async function(r,s){var body=r.body||{};var msgs=Array.isArray(body.messages)?body.messages.filter(function(m){return m&&typeof m.content==='string'&&m.content.trim()}).slice(-20):[];if(!msgs.length)return s.status(400).json({error:'Sin mensaje'});if(!PROVIDERS.length)return s.status(503).json({error:'No API key'});var sid=String(body.id||'').slice(0,80);var l0=getLearner(sid);var lr=touchActive(l0);if(body.name)db.prepare('UPDATE learners SET name=? WHERE id=?').run(String(body.name).slice(0,30),lr.id);var user=msgs.slice().reverse().find(function(m){return m.role==='user'})||{content:''};var isV=/^🎤/.test(user.content);if(isV)db.prepare('UPDATE learners SET voice_msg=voice_msg+1 WHERE id=?').run(lr.id);try{var prompt=[{role:'system',content:buildMayaPrompt(lr)}].concat(msgs.slice(-14));var reply=cleanReply(await callOpenRouter(prompt,0.75,300));var hc=/❌/.test(reply);var base=isV?15:10;var xp=hc?Math.max(5,base-3):base+5;var g=grantXp(lr,xp);lr=g.learner;var kv={reply:reply,profile:{level:g.to,leveled:g.leveled,from:g.from,streak:Number(lr.streak)||0,total_msg:Number(lr.total_msg)||0,errorsCount:JSON.parse(lr.errors||'[]').length}};Object.assign(kv.profile,levelInfo(lr.xp));s.json(kv);if((Number(lr.total_msg)||0)%6===0)evaluateLearner(lr,msgs);}catch(e){s.status(502).json({error:(e.message.indexOf('IA offline')>=0?'Todos los modelos IA offline. Revisa tu API key en Render.':e.message.indexOf('No API key')>=0?'No hay API key. Agrega ZEN_API_KEY en Render.':'Maya error: '+e.message)});}});
+app.post('/api/ingles/chat',rateLimit(40),async function(r,s){var body=r.body||{};var msgs=Array.isArray(body.messages)?body.messages.filter(function(m){return m&&typeof m.content==='string'&&m.content.trim()}).slice(-10):[];if(!msgs.length)return s.status(400).json({error:'Sin mensaje'});if(!PROVIDERS.length)return s.status(503).json({error:'No API key'});var sid=String(body.id||'').slice(0,80);var l0=getLearner(sid);var lr=touchActive(l0);if(body.name)db.prepare('UPDATE learners SET name=? WHERE id=?').run(String(body.name).slice(0,30),lr.id);var user=msgs.slice().reverse().find(function(m){return m.role==='user'})||{content:''};var isV=/^🎤/.test(user.content);if(isV)db.prepare('UPDATE learners SET voice_msg=voice_msg+1 WHERE id=?').run(lr.id);try{var prompt=[{role:'system',content:buildMayaPrompt(lr)}].concat(msgs.slice(-8));var reply=cleanReply(await callOpenRouter(prompt,0.7,180));var hc=/❌/.test(reply);var base=isV?15:10;var xp=hc?Math.max(5,base-3):base+5;var g=grantXp(lr,xp);lr=g.learner;var kv={reply:reply,profile:{level:g.to,leveled:g.leveled,from:g.from,streak:Number(lr.streak)||0,total_msg:Number(lr.total_msg)||0,errorsCount:JSON.parse(lr.errors||'[]').length}};Object.assign(kv.profile,levelInfo(lr.xp));s.json(kv);if((Number(lr.total_msg)||0)%6===0)evaluateLearner(lr,msgs);}catch(e){s.status(502).json({error:(e.message.indexOf('IA offline')>=0?'Todos los modelos IA offline. Revisa tu API key en Render.':e.message.indexOf('No API key')>=0?'No hay API key. Agrega ZEN_API_KEY en Render.':'Maya error: '+e.message)});}});
 app.post('/api/ingles/evaluar',rateLimit(10),async function(r,s){var l=getLearner(r.body&&r.body.id);if(!l)return s.status(400).json({error:'sin alumno'});var msgs=(Array.isArray(r.body.messages)?r.body.messages:[]).slice(-20);try{var o=await evaluateLearner(l,msgs)||{error:'no eval'};s.json(o);}catch(e){
     console.error('[MAYA ERROR] Eval failed:', e.message);
     s.status(502).json({error:String(e.message||e)});

@@ -310,8 +310,10 @@ function renderPath(){
 // === Fetch profile ===
 function fetchMe(){
   if(!actId)return;
-  fetch("/api/ingles/me?id="+encodeURIComponent(actId)).then(function(r){return r.json()}).then(function(d){
-    if(d){me=d;renderXP();renderPath()}
+  // Try cache first
+  try{var cached=JSON.parse(localStorage.getItem('maya_profile_'+actId)||'null');if(cached){me=Object.assign({total_msg:0,voice_msg:0,streak:0,errors:[],vocab:[],summary:'',goals:''},cached);renderXP();renderPath()}}catch(e){}
+  return fetch("/api/ingles/me?id="+encodeURIComponent(actId)).then(function(r){return r.json()}).then(function(d){
+    if(d){me=d;renderXP();renderPath();localStorage.setItem('maya_profile_'+actId,JSON.stringify({name:d.name,level:d.level,xp:d.xp}))}
   }).catch(function(){});
 }
 
@@ -439,14 +441,14 @@ async function sendMessage(){
   freezing=true;sT.textContent="Pensando...";setProc(true);
   micBtn.classList.add("pro");mL.textContent="Maya esta pensando...";
   try{
-    var msgs=hist.slice(-20).map(function(m){return{role:m.role==="user"?"user":"assistant",content:m.text}});
+    var msgs=hist.slice(-10).map(function(m){return{role:m.role==="user"?"user":"assistant",content:m.text}});
     var r=await fetch("/api/ingles/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:actId,messages:msgs})});
     var j=await r.json();
     if(!r.ok)throw new Error(j.error||"Error");
     hist.push({role:"assistant",text:j.reply});addBub("ai",j.reply);saveChat();
     setSub(j.reply);
     if(autoSpeak)speak(j.reply);
-    if(j.profile){me=Object.assign({},me,j.profile);renderXP();renderPath()}
+    if(j.profile){me=Object.assign({},me,j.profile);renderXP();renderPath();localStorage.setItem('maya_profile_'+actId,JSON.stringify({name:me.name,level:me.level,xp:me.xp}))}
     // Show correction overlay if present
     if(j.correction)showCorrection(j.correction);
   }catch(e){
@@ -497,7 +499,10 @@ function loadChat(){
   cS.innerHTML="";hist.forEach(function(m){addBub(m.role==="user"?"me":"ai",m.text)});
   var last=hist[hist.length-1];
   if(hist.length===0){welcome();return}if(last&&last.role==="assistant")setSub(last.text);
-  fetchMe();renderPath();
+  fetchMe().catch(function(){});
+// Load cached profile as fallback
+try{var cached=JSON.parse(localStorage.getItem('maya_profile_'+actId)||'null');if(cached&&(!me||me.total_msg===0)){me=Object.assign({total_msg:0,voice_msg:0,streak:0,errors:[],vocab:[],summary:'',goals:'',level:'A0',xp:0},cached);renderXP();renderPath()}}catch(e){}
+renderPath();
 }
 
 // === Name modal ===
