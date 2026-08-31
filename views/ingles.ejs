@@ -248,7 +248,7 @@ var PK="maya_profiles",allP=JSON.parse(localStorage.getItem(PK)||"[]"),actId=loc
 var hist=[],me=null,cOpen=false,cCnt=0;
 var autoSpeak=localStorage.getItem("maya_speak")!=="0";
 var autoMic=false;
-var freezing=false,pVoice=false,rec=null,listening=false,hText="";
+var freezing=false,pVoice=false,listening=false,hText="";
 var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 
 // === Avatar states ===
@@ -390,83 +390,159 @@ function speak(text){
   speechSynthesis.speak(u);
 }
 
-// === Microphone ===
+// === Microphone (mobile-optimized) ===
 function showPerm(){permB.classList.add("show");setTimeout(function(){permB.classList.remove("show")},5000)}
-var _micRetry=0;
+
+var _micBusy=false, _recInstance=null, _lastStart=0, _micRetry=0;
+
+function _killRec(){
+  if(_recInstance){
+    try{_recInstance.onend=null;_recInstance.onerror=null;_recInstance.onresult=null;_recInstance.onstart=null;_recInstance.stop()}catch(e){}
+    try{_recInstance.abort()}catch(e){}
+    _recInstance=null;
+  }
+}
+
 function startMic(){
-  if(freezing)return;
+  if(freezing||_micBusy)return;
   if(!SR){setSub("Tu navegador no soporta microfono. Usa Chrome o Edge.");return}
+
+  // Prevent rapid restarts (debounce 300ms)
+  var now=Date.now();
+  if(now - _lastStart < 300)return;
+  _lastStart=now;
+
   speechSynthesis.cancel();setSpk(false);
-  if(rec){try{rec.abort()}catch(e){}rec=null}
-  rec=new SR();
-  // Detect language: if last message was Spanish, use es-MX, else en-US
+  _killRec();
+
+  _micBusy=true;
+  listening=false;
+
+  // Create fresh instance every time (critical for mobile)
+  var r=new SR();
+  _recInstance=r;
+
   var lastMsg=hist.length?hist[hist.length-1].text:"";
-  rec.lang=isSpanish(lastMsg)?"es-MX":"en-US";
-  rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=1;
-  rec.onstart=function(){
-    listening=true;hText="";_micRetry=0;
+  r.lang=isSpanish(lastMsg)?"es-MX":"en-US";
+  r.continuous=true;
+  r.interimResults=true;
+  r.maxAlternatives=1;
+  // Some mobile browsers respect these timeouts better
+  try{r.servicedOnResume=true}catch(e){}
+
+  var _gotResult=false, _finalText="", _timeout=null;
+
+  r.onstart=function(){
+    listening=true;_micBusy=false;_gotResult=false;_finalText="";
     micBtn.classList.add("rec");mL.classList.add("rec");
     mL.textContent="Escuchando...";wvEl.classList.add("on");
     sT.textContent="";setLstn(true);
+
+    // Safety timeout: if no result in 25s, stop gracefully
+    _timeout=setTimeout(function(){
+      if(listening&&_recInstance===r){
+        try{r.stop()}catch(e){}
+      }
+    },25000);
   };
-  rec.onresult=function(e){
+
+  r.onresult=function(e){
+    _gotResult=true;
     var fin="",inter="";
     for(var i=0;i<e.results.length;i++){
       var t=e.results[i][0].transcript;
       var conf=e.results[i][0].confidence;
-      if(e.results[i].isFinal){if(conf>0.03)fin+=(fin?" ":"")+t}else{inter=t}
+      if(e.results[i].isFinal){if(conf>0.01)fin+=(fin?" ":"")+t}
+      else{inter=t}
     }
-    if(fin)hText=fin;
-    if(inter)sT.textContent=inter;
-    if(hText)sT.textContent=hText;
+    if(fin)_finalText=fin;
+    var display=_finalText||inter;
+    if(display){sT.textContent=display;hText=display}
   };
-  rec.onerror=function(e){
+
+  r.onerror=function(e){
+    // no-speech and aborted are NORMAL on mobile - ignore them
     if(e.error==="no-speech"||e.error==="aborted"){
-      // These are normal - just keep listening
-      return;
-    }
-    if(e.error==="network"){
-      // Google server unreachable - retry silently
-      _micRetry++;
-      if(_micRetry<3){setTimeout(function(){try{rec.start()}catch(ex){}},500);return}
-    }
-    listening=false;micBtn.classList.remove("rec");mL.classList.remove("rec");
-    wvEl.classList.remove("on");setLstn(false);
-    if(e.error==="not-allowed"){showPerm();mL.textContent="Permiso denegado. Activa el microfono en ajustes."}
-    else if(e.error==="network"){mL.textContent="Sin conexion a Google. Intenta de nuevo."}
-    else{mL.textContent="Error: "+(e.error||"!")+". Toca para reintentar."}
-    setTimeout(function(){mL.textContent="Toca para hablar"},4000);
-  };
-  rec.onend=function(){
-    // If still supposed to be listening, auto-restart
-    if(listening){
-      try{rec.start()}catch(e){
-        listening=false;micBtn.classList.remove("rec");mL.classList.remove("rec");
-        wvEl.classList.remove("on");setLstn(false);
-        setTimeout(function(){mL.textContent="Toca para hablar"},2000);
+      // If we were listening and got results, treat as end
+      if(_gotResult&&_finalText){
+        _finishMic(_finalText);
       }
       return;
     }
+    if(e.error==="network"){
+      // Google server unreachable on first try - retry once after 1s
+      if(_micRetry<2){
+        _micRetry++;
+        setTimeout(function(){try{r.start()}catch(ex){}},1000);
+        return;
+      }
+    }
+    // Real error - clean up
+    clearTimeout(_timeout);
+    listening=false;_micBusy=false;
     micBtn.classList.remove("rec");mL.classList.remove("rec");
     wvEl.classList.remove("on");setLstn(false);
-    var heard=hText.trim();
-    if(heard&&heard.length>2){
-      pVoice=true;mL.textContent="Enviando...";mL.classList.add("ok");
-      setTimeout(function(){mL.classList.remove("ok")},2000);
-      sendMessage();
-    }else{
-      mL.textContent="No te escuche. Intenta mas fuerte o escribe.";
-      setTimeout(function(){mL.textContent="Toca para hablar"},2500);
-    }
+    if(e.error==="not-allowed"){showPerm();mL.textContent="Permiso denegado. Activa mic en ajustes."}
+    else if(e.error==="network"){mL.textContent="Sin internet para reconocimiento de voz."}
+    else{mL.textContent="Error: "+(e.error||"!")+". Toca para reintentar."}
+    setTimeout(function(){mL.textContent="Toca para hablar"},4000);
   };
-  try{rec.start()}catch(e){setSub("No pude iniciar el microfono.");mL.textContent="Error al iniciar mic"}
+
+  r.onend=function(){
+    clearTimeout(_timeout);
+    // If we got a final result, finish normally
+    if(_gotResult&&_finalText){
+      _finishMic(_finalText);
+      return;
+    }
+    // If still supposed to be listening and no results yet, auto-restart (mobile kills it)
+    if(listening){
+      _micBusy=false;
+      setTimeout(function(){
+        if(listening&&!freezing&&_recInstance===r){
+          try{_killRec();startMic()}catch(e){
+            listening=false;micBtn.classList.remove("rec");mL.classList.remove("rec");
+            wvEl.classList.remove("on");setLstn(false);
+            mL.textContent="Toca para hablar";
+          }
+        }
+      },150);
+      return;
+    }
+    // Stopped naturally
+    micBtn.classList.remove("rec");mL.classList.remove("rec");
+    wvEl.classList.remove("on");setLstn(false);_micBusy=false;
+  };
+
+  try{r.start();_micRetry=0}catch(e){
+    _micBusy=false;listening=false;
+    setSub("No pude iniciar el microfono.");
+    mL.textContent="Error al iniciar mic";
+  }
 }
-function stopMic(){
-  listening=false;
-  if(rec){try{rec.abort()}catch(e){}rec=null}
+
+function _finishMic(text){
+  listening=false;_micBusy=false;
+  _killRec();
   micBtn.classList.remove("rec");mL.classList.remove("rec");
   wvEl.classList.remove("on");setLstn(false);
+  text=text.trim();
+  if(text&&text.length>2){
+    pVoice=true;mL.textContent="Enviando...";mL.classList.add("ok");
+    setTimeout(function(){mL.classList.remove("ok")},2000);
+    sendMessage();
+  }else{
+    mL.textContent="No te escuche. Intenta mas fuerte o escribe.";
+    setTimeout(function(){mL.textContent="Toca para hablar"},2500);
+  }
+}
+
+function stopMic(){
+  listening=false;
   var heard=hText.trim();
+  _killRec();
+  micBtn.classList.remove("rec");mL.classList.remove("rec");
+  wvEl.classList.remove("on");setLstn(false);_micBusy=false;
   if(heard&&heard.length>2){
     pVoice=true;mL.textContent="Enviando...";mL.classList.add("ok");
     setTimeout(function(){mL.classList.remove("ok")},2000);
@@ -475,7 +551,9 @@ function stopMic(){
     mL.textContent="Toca para hablar";
   }
 }
-micBtn.ontouchstart=function(e){e.preventDefault();listening?stopMic():startMic()};micBtn.onclick=function(){listening?stopMic():startMic()};
+
+micBtn.ontouchstart=function(e){e.preventDefault();e.stopPropagation();listening?stopMic():startMic()};
+micBtn.onclick=function(e){if(e.pointerType==="touch")return;listening?stopMic():startMic()};
 
 // === Send message ===
 async function sendMessage(){
@@ -566,7 +644,7 @@ G("cH").onclick=function(){cOpen=false;cP.classList.remove("op")};
 bR.onclick=function(){
   if(hist.length&&!confirm("Reiniciar?"))return;
   speechSynthesis.cancel();setSpk(false);
-  if(rec){try{rec.abort()}catch(e){}rec=null}
+  _killRec();
   listening=false;micBtn.classList.remove("rec");wvEl.classList.remove("on");
   hist=[];cS.innerHTML="";saveChat();welcome();
 };
