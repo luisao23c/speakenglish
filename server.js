@@ -285,6 +285,28 @@ MAXIMO 6 lineas por respuesta. Menos es mas.
 `;
 }
 
+
+function cleanReply(text) {
+  if (!text) return text;
+  var lines = text.split(String.fromCharCode(10));
+  var skipWords = ['Analysis','Strategy','Draft','Constraint','Student','Step','Rule','Context','Teach','Model','Priority','Topic','Key Vocab','Category','Grade','Grade Level'];
+  var lastMeaningful = '';
+  for (var i = lines.length - 1; i >= 0; i--) {
+    var line = lines[i].trim();
+    if (line.length > 10 && !line.startsWith('**') && !line.startsWith('*')) {
+      var skip = false;
+      for (var w = 0; w < skipWords.length; w++) {
+        if (line.indexOf(skipWords[w]) === 0) { skip = true; break; }
+      }
+      if (!skip) { lastMeaningful = line; break; }
+    }
+  }
+  if (lastMeaningful && lastMeaningful.length < text.length * 0.7) {
+    return lastMeaningful;
+  }
+  return text.trim();
+}
+
 async function callOpenRouter(msgs, temp, tok) {
   if (!PROVIDERS.length) throw new Error('No API key');
   var lastErr = '';
@@ -306,7 +328,7 @@ async function callOpenRouter(msgs, temp, tok) {
           if (!r.ok) { lastErr = pv.name + '/' + pv.models[mo] + ' ' + r.status; continue; }
           var j = await r.json();
           var t = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
-          if (t) return t;
+          if (t) return cleanReply(t);
           lastErr = 'empty response';
         } catch (e) {
           lastErr = e.name === 'AbortError' ? 'timeout' : String(e.message || e);
@@ -321,7 +343,7 @@ async function callOpenRouter(msgs, temp, tok) {
 app.get('/',function(r,s){s.redirect('/ingles')});
 app.get('/ingles',function(r,s){s.set('Cache-Control','no-store');s.render('ingles',{hasKey:PROVIDERS.length>0})});
 app.get('/api/ingles/me',rateLimit(30),function(r,s){var l=getLearner(r.query.id);if(!l)return s.json(null);var kv={id:l.id,name:l.name,streak:Number(l.streak)||0,total_msg:Number(l.total_msg)||0,voice_msg:Number(l.voice_msg)||0,errors:JSON.parse(l.errors||'[]'),vocab:JSON.parse(l.vocab||'[]'),summary:l.summary,goals:l.goals};Object.assign(kv,levelInfo(l.xp));try{var ls=getLesson(l);kv.lesson=ls.id==='conversation'?'Platica libre':ls.title;}catch(e){}s.json(kv);});
-app.post('/api/ingles/chat',rateLimit(40),async function(r,s){var body=r.body||{};var msgs=Array.isArray(body.messages)?body.messages.filter(function(m){return m&&typeof m.content==='string'&&m.content.trim()}).slice(-20):[];if(!msgs.length)return s.status(400).json({error:'Sin mensaje'});if(!PROVIDERS.length)return s.status(503).json({error:'No API key'});var sid=String(body.id||'').slice(0,80);var l0=getLearner(sid);var lr=touchActive(l0);if(body.name)db.prepare('UPDATE learners SET name=? WHERE id=?').run(String(body.name).slice(0,30),lr.id);var user=msgs.slice().reverse().find(function(m){return m.role==='user'})||{content:''};var isV=/^🎤/.test(user.content);if(isV)db.prepare('UPDATE learners SET voice_msg=voice_msg+1 WHERE id=?').run(lr.id);try{var prompt=[{role:'system',content:buildMayaPrompt(lr)}].concat(msgs.slice(-14));var reply=await callOpenRouter(prompt,0.75,620);var hc=/❌/.test(reply);var base=isV?15:10;var xp=hc?Math.max(5,base-3):base+5;var g=grantXp(lr,xp);lr=g.learner;var kv={reply:reply,profile:{level:g.to,leveled:g.leveled,from:g.from,streak:Number(lr.streak)||0,total_msg:Number(lr.total_msg)||0,errorsCount:JSON.parse(lr.errors||'[]').length}};Object.assign(kv.profile,levelInfo(lr.xp));s.json(kv);if((Number(lr.total_msg)||0)%6===0)evaluateLearner(lr,msgs);}catch(e){s.status(502).json({error:'Maya error: '+e.message});}});
+app.post('/api/ingles/chat',rateLimit(40),async function(r,s){var body=r.body||{};var msgs=Array.isArray(body.messages)?body.messages.filter(function(m){return m&&typeof m.content==='string'&&m.content.trim()}).slice(-20):[];if(!msgs.length)return s.status(400).json({error:'Sin mensaje'});if(!PROVIDERS.length)return s.status(503).json({error:'No API key'});var sid=String(body.id||'').slice(0,80);var l0=getLearner(sid);var lr=touchActive(l0);if(body.name)db.prepare('UPDATE learners SET name=? WHERE id=?').run(String(body.name).slice(0,30),lr.id);var user=msgs.slice().reverse().find(function(m){return m.role==='user'})||{content:''};var isV=/^🎤/.test(user.content);if(isV)db.prepare('UPDATE learners SET voice_msg=voice_msg+1 WHERE id=?').run(lr.id);try{var prompt=[{role:'system',content:buildMayaPrompt(lr)}].concat(msgs.slice(-14));var reply=cleanReply(await callOpenRouter(prompt,0.75,620));var hc=/❌/.test(reply);var base=isV?15:10;var xp=hc?Math.max(5,base-3):base+5;var g=grantXp(lr,xp);lr=g.learner;var kv={reply:reply,profile:{level:g.to,leveled:g.leveled,from:g.from,streak:Number(lr.streak)||0,total_msg:Number(lr.total_msg)||0,errorsCount:JSON.parse(lr.errors||'[]').length}};Object.assign(kv.profile,levelInfo(lr.xp));s.json(kv);if((Number(lr.total_msg)||0)%6===0)evaluateLearner(lr,msgs);}catch(e){s.status(502).json({error:'Maya error: '+e.message});}});
 app.post('/api/ingles/evaluar',rateLimit(10),async function(r,s){var l=getLearner(r.body&&r.body.id);if(!l)return s.status(400).json({error:'sin alumno'});var msgs=(Array.isArray(r.body.messages)?r.body.messages:[]).slice(-20);try{var o=await evaluateLearner(l,msgs)||{error:'no eval'};s.json(o);}catch(e){s.status(502).json({error:String(e.message||e)});}});
 app.get('/api/levels/path',rateLimit(30),function(r,s){var uid=String(r.query.id||'').slice(0,80);if(!uid)return s.status(400).json({error:'id required'});getLearner(uid);s.json({path:getLevelPath(uid),current:getCurrentLevel(uid).id});});
 app.get('/api/levels/current',rateLimit(30),function(r,s){var uid=String(r.query.id||'').slice(0,80);if(!uid)return s.status(400).json({error:'id required'});var cur=getCurrentLevel(uid);var lr=getLearner(uid);s.json({level:cur,learner:{level:lr.level,xp:lr.xp}});});
