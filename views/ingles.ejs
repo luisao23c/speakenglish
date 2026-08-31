@@ -148,6 +148,9 @@ body{font-family:Inter,-apple-system,sans-serif;background:var(--bg);color:var(-
 /* Mic permission banner */
 .perm-banner{position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(234,67,53,.9);color:#fff;padding:10px 20px;border-radius:12px;font-size:13px;z-index:15;display:none;text-align:center;max-width:90%}
 .perm-banner.show{display:block}
+.error-alert{position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(234,67,53,.95);color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;z-index:25;display:none;text-align:center;max-width:90%;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.error-alert.show{display:block;animation:fadeIn .3s}
+
 
 
 /* Volume bars */
@@ -212,7 +215,7 @@ body{font-family:Inter,-apple-system,sans-serif;background:var(--bg);color:var(-
 <div class="corr-overlay" id="corrO"></div>
 <button class="cfab" id="cF">&#x1f4ac;<span class="ccnt" id="cC">0</span></button>
 <div class="cpanel" id="cP"><div class="chdr" id="cH"><h3>Historial</h3><span>&#x25bc;</span></div><div class="cscr" id="cS"></div></div>
-<div class="perm-banner" id="permB">Necesitamos permiso para tu microfono. &#x1f399;</div>
+<div class="error-alert" id="errA"></div><div class="perm-banner" id="permB">Necesitamos permiso para tu microfono. &#x1f399;</div>
 <div class="mover h" id="nM"><div class="mbox">
   <h2>Hey! Soy Maya</h2>
   <p>Como te llamas? Vamos a ser compas.</p>
@@ -229,7 +232,17 @@ var cS=G("cS"),cP=G("cP"),cF=G("cF"),cC=G("cC");
 var bS=G("bS"),bA=G("bA"),bC=G("bC"),bR=G("bR"),bP=G("bP");
 var lvlB=G("lvlB"),xpL=G("xpL"),xpP=G("xpP");
 var nM=G("nM"),nI=G("nI"),nB=G("nB"),pL=G("pL"),lP=G("lP"),lP2=G("lP2");
-var tField=G("tField"),tSend=G("tSend"),corrO=G("corrO"),permB=G("permB");
+var tField=G("tField"),tSend=G("tSend"),corrO=G("corrO"),permB=G("permB"),errA=G("errA");
+var _errCount=0;
+function showError(msg){
+  var el=G('errA');
+  el.textContent=msg;
+  el.classList.add('show');
+  _errCount++;
+  setTimeout(function(){el.classList.remove('show')},8000);
+  console.error('[Maya Alert] '+msg+' (count: '+_errCount+')');
+}
+
 
 var PK="maya_profiles",allP=JSON.parse(localStorage.getItem(PK)||"[]"),actId=localStorage.getItem("maya_active")||"";
 var hist=[],me=null,cOpen=false,cCnt=0;
@@ -437,7 +450,7 @@ async function sendMessage(){
     // Show correction overlay if present
     if(j.correction)showCorrection(j.correction);
   }catch(e){
-    setSub("No pude responder. Intenta de nuevo.");hist.pop();saveChat();
+    var errMsg=e.message||"Error desconocido";setSub("Error: "+errMsg);hist.pop();saveChat();showError("Error: "+errMsg);
   }finally{freezing=false;setProc(false);micBtn.classList.remove("pro");mL.textContent="Toca para hablar"}
 }
 
