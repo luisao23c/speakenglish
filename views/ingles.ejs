@@ -303,17 +303,62 @@ function fetchMe(){
 }
 
 // === Voice ===
-function getVoice(){
-  if(!("speechSynthesis" in window))return null;
+// === Voice selection with language detection ===
+var _esVoices=[],_enVoices=[];
+function loadVoices(){
+  if(!("speechSynthesis" in window))return;
   var vs=speechSynthesis.getVoices();
-  return vs.find(function(v){return/^en-US/i.test(v.lang)})||vs.find(function(v){return/^en/i.test(v.lang)})||null;
+  _esVoices=vs.filter(function(v){return/^es/i.test(v.lang)});
+  _enVoices=vs.filter(function(v){return/^en/i.test(v.lang)});
 }
+if("speechSynthesis" in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices}
+
+function isSpanish(text){
+  // Check for Spanish markers: accent chars, common Spanish words
+  var t=text.toLowerCase();
+  if(/[áéíóúñ¿¡]/.test(text))return true;
+  if(/\b(hola|como|estas|que|tal|bien|gracias|por|favor|pero|tambien|voy|eres|soy|tiene|tengo|puedes|puedo|aqui|ahi|luego|despues|entonces|porque|cuando|donde|quien|cual|cuanto|nada|todo|muy|mucho|poco|bueno|malo|grande|pequeno|nuevo|viejo|hoy|ayer|manana|ahora|siempre|nunca|aqui|alli|vamos|decir|hacer|ir|venir|dar|ver|saber|creer|querer|gustar|haber|ser|estar|tener|poder|poner|salir|seguir|pasar|llevar|dejar|quedar|volver|tomar|conocer|sentir|llevar|buscar|entrar|caer|perder|morir|vivir|comer|beber|trabajar|estudiar|hablar|escribir|leer|pensar|sentir|creer|explicar|practicar|aprender|enseñar|corregir|repetir|escuchar|mirar|preguntar|responder|recordar|olvidar|empezar|terminar|continuar|intentar|ayudar|enseñar|hablar|platicar|charlar|conversar| divertido|chiste|broma|jaja|jeje|jojo)/.test(t))return true;
+  return false;
+}
+
+function pickVoice(lang){
+  var pool=lang==="es"?_esVoices:_enVoices;
+  if(!pool.length){
+    // Fallback to all voices
+    pool=speechSynthesis.getVoices().filter(function(v){return lang==="es"?/^es/.test(v.lang):/^en/.test(v.lang)});
+  }
+  if(!pool.length)return null;
+  // Prefer Google/Microsoft natural voices
+  var preferred=pool.filter(function(v){return/Google|Microsoft|Samantha|Paulina|Helena|Monica/.test(v.name)});
+  return preferred[0]||pool[0]||null;
+}
+
 function speak(text){
   if(!("speechSynthesis" in window))return;
   speechSynthesis.cancel();
-  var plain=String(text).replace(/[*_]+/g,"");
-  var u=new SpeechSynthesisUtterance(plain);u.lang="en-US";u.rate=0.88;u.pitch=1.0;
-  var v=getVoice();if(v)u.voice=v;
+  var plain=String(text).replace(/[*_]+/g,"").replace(/\s+/g," ").trim();
+  if(!plain)return;
+  
+  var lang=isSpanish(plain)?"es":"en";
+  var u=new SpeechSynthesisUtterance(plain);
+  u.lang=lang==="es"?"es-MX":"en-US";
+  
+  // Natural rate: slower for teaching, normal for conversation
+  var wordCount=plain.split(" ").length;
+  if(lang==="es"){
+    u.rate=0.92;  // Spanish slightly slower for clarity
+    u.pitch=1.05; // Slightly higher, more friendly
+  }else{
+    u.rate=0.85;  // English slower for learners
+    u.pitch=1.0;  // Natural pitch
+  }
+  
+  var v=pickVoice(lang);
+  if(v){
+    u.voice=v;
+    u.lang=v.lang;  // Use the voice's actual language tag
+  }
+  
   setSpk(true);
   u.onend=function(){setSpk(false);if(autoMic&&!freezing)setTimeout(startMic,800)};
   u.onerror=function(){setSpk(false)};
