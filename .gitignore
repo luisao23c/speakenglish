@@ -1,9 +1,14 @@
 node_modules/
 .env
 .env.*
+!.env.example
 maya.db
+maya.db-shm
+maya.db-wal
 __pycache__/
 *.pyc
 *.log
 _freebuff/
-!.env.example
+.freebuff/
+_freebuffpreview-*
+.freebuffpreview-*
