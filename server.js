@@ -59,7 +59,7 @@ function getProviders() {
   const orKeys = getOrKeys();
   const providers = [];
   if (zenKey) providers.push({ name: 'zen', url: 'https://opencode.ai/zen/v1/chat/completions', keys: [zenKey], models: ['mimo-v2.5-free', 'nemotron-3.5-lightning-free', 'nemotron-3-ultra-free'] });
-  if (orKeys.length) providers.push({ name: 'openrouter', url: 'https://openrouter.ai/api/v1/chat/completions', keys: orKeys, models: [process.env.OPENROUTER_MODEL || 'minimax/minimax-m2.7:free', 'minimax/minimax-m2.7:free', 'google/gemma-4-31b-it:free', 'z-ai/glm-5.2:free'] });
+  if (orKeys.length) providers.push({ name: 'openrouter', url: 'https://openrouter.ai/api/v1/chat/completions', keys: orKeys, models: [process.env.OPENROUTER_MODEL || 'minimax/minimax-m2.7:free', 'minimax/minimax-m2.7:free', 'google/gemma-4-31b-it:free'] });
   return providers;
 }
 const PROVIDERS = getProviders();
