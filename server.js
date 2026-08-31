@@ -133,10 +133,20 @@ const EXAMS = curriculum.EXAMS;
 const CERT_EXAMS = curriculum.CERT_EXAMS;
 const getLevelInfo = curriculum.getLevelInfo;
 
+
+var _levelPathCache = {};
+function getCachedLevelPath(userId) {
+  if (_levelPathCache[userId]) return _levelPathCache[userId];
+  var result = getLevelPath(userId);
+  _levelPathCache[userId] = result;
+  // Clear cache after 5 minutes
+  setTimeout(function() { delete _levelPathCache[userId]; }, 300000);
+  return result;
+}
 function getLesson(learner) {
   var currentLvl = null;
   try {
-    var path = getLevelPath(learner.id);
+    var path = getCachedLevelPath(learner.id);
     for (var i = 0; i < path.length; i++) {
       if (path[i].status !== 'completed') { currentLvl = LEVEL_PATH.find(function(l){return l.id===path[i].id;}); break; }
     }
@@ -224,7 +234,7 @@ function buildMayaPrompt(learner) {
   // Get current level from path
   var currentLvl = null;
   try {
-    var path = getLevelPath(learner.id);
+    var path = getCachedLevelPath(learner.id);
     for (var i = 0; i < path.length; i++) {
       if (path[i].status !== "completed") { currentLvl = LEVEL_PATH.find(function(l){return l.id===path[i].id;}); break; }
     }
@@ -242,6 +252,7 @@ function buildMayaPrompt(learner) {
   
   return `Eres Maya, la maestra y amiga bilingue de ${name}. Estan en una videollamada cara a cara.
 
+NO MUESTRES TU RAZONAMIENTO. Responde DIRECTAMENTE como Maya hablando.
 PRIORIDAD ABSOLUTA: HABLAR. Todo debe terminar en produccion oral.
 No puedes evaluar pronunciacion por texto, pero si puedes hacer que hable.
 
@@ -281,7 +292,7 @@ CORRECCION ORAL:
 Cuando corrijas, hazlo asi:
 "Oye, eso dijiste bien pero mejor dile asi: [frase mejorada]. A ver, repite."
 
-MAXIMO 6 lineas por respuesta. Menos es mas.
+MAXIMO 4 lineas por respuesta. Menos es mas. Responde DIRECTAMENTE, sin razonar.
 `;
 }
 
@@ -348,7 +359,7 @@ app.get('/api/health', function(r, s) {
 app.get('/',function(r,s){s.redirect('/ingles')});
 app.get('/ingles',function(r,s){s.set('Cache-Control','no-store');s.render('ingles',{hasKey:PROVIDERS.length>0})});
 app.get('/api/ingles/me',rateLimit(30),function(r,s){var l=getLearner(r.query.id);if(!l)return s.json(null);var kv={id:l.id,name:l.name,streak:Number(l.streak)||0,total_msg:Number(l.total_msg)||0,voice_msg:Number(l.voice_msg)||0,errors:JSON.parse(l.errors||'[]'),vocab:JSON.parse(l.vocab||'[]'),summary:l.summary,goals:l.goals};Object.assign(kv,levelInfo(l.xp));try{var ls=getLesson(l);kv.lesson=ls.id==='conversation'?'Platica libre':ls.title;}catch(e){}s.json(kv);});
-app.post('/api/ingles/chat',rateLimit(40),async function(r,s){var body=r.body||{};var msgs=Array.isArray(body.messages)?body.messages.filter(function(m){return m&&typeof m.content==='string'&&m.content.trim()}).slice(-20):[];if(!msgs.length)return s.status(400).json({error:'Sin mensaje'});if(!PROVIDERS.length)return s.status(503).json({error:'No API key'});var sid=String(body.id||'').slice(0,80);var l0=getLearner(sid);var lr=touchActive(l0);if(body.name)db.prepare('UPDATE learners SET name=? WHERE id=?').run(String(body.name).slice(0,30),lr.id);var user=msgs.slice().reverse().find(function(m){return m.role==='user'})||{content:''};var isV=/^🎤/.test(user.content);if(isV)db.prepare('UPDATE learners SET voice_msg=voice_msg+1 WHERE id=?').run(lr.id);try{var prompt=[{role:'system',content:buildMayaPrompt(lr)}].concat(msgs.slice(-14));var reply=cleanReply(await callOpenRouter(prompt,0.75,620));var hc=/❌/.test(reply);var base=isV?15:10;var xp=hc?Math.max(5,base-3):base+5;var g=grantXp(lr,xp);lr=g.learner;var kv={reply:reply,profile:{level:g.to,leveled:g.leveled,from:g.from,streak:Number(lr.streak)||0,total_msg:Number(lr.total_msg)||0,errorsCount:JSON.parse(lr.errors||'[]').length}};Object.assign(kv.profile,levelInfo(lr.xp));s.json(kv);if((Number(lr.total_msg)||0)%6===0)evaluateLearner(lr,msgs);}catch(e){s.status(502).json({error:(e.message.indexOf('IA offline')>=0?'Todos los modelos IA offline. Revisa tu API key en Render.':e.message.indexOf('No API key')>=0?'No hay API key. Agrega ZEN_API_KEY en Render.':'Maya error: '+e.message)});}});
+app.post('/api/ingles/chat',rateLimit(40),async function(r,s){var body=r.body||{};var msgs=Array.isArray(body.messages)?body.messages.filter(function(m){return m&&typeof m.content==='string'&&m.content.trim()}).slice(-20):[];if(!msgs.length)return s.status(400).json({error:'Sin mensaje'});if(!PROVIDERS.length)return s.status(503).json({error:'No API key'});var sid=String(body.id||'').slice(0,80);var l0=getLearner(sid);var lr=touchActive(l0);if(body.name)db.prepare('UPDATE learners SET name=? WHERE id=?').run(String(body.name).slice(0,30),lr.id);var user=msgs.slice().reverse().find(function(m){return m.role==='user'})||{content:''};var isV=/^🎤/.test(user.content);if(isV)db.prepare('UPDATE learners SET voice_msg=voice_msg+1 WHERE id=?').run(lr.id);try{var prompt=[{role:'system',content:buildMayaPrompt(lr)}].concat(msgs.slice(-14));var reply=cleanReply(await callOpenRouter(prompt,0.75,300));var hc=/❌/.test(reply);var base=isV?15:10;var xp=hc?Math.max(5,base-3):base+5;var g=grantXp(lr,xp);lr=g.learner;var kv={reply:reply,profile:{level:g.to,leveled:g.leveled,from:g.from,streak:Number(lr.streak)||0,total_msg:Number(lr.total_msg)||0,errorsCount:JSON.parse(lr.errors||'[]').length}};Object.assign(kv.profile,levelInfo(lr.xp));s.json(kv);if((Number(lr.total_msg)||0)%6===0)evaluateLearner(lr,msgs);}catch(e){s.status(502).json({error:(e.message.indexOf('IA offline')>=0?'Todos los modelos IA offline. Revisa tu API key en Render.':e.message.indexOf('No API key')>=0?'No hay API key. Agrega ZEN_API_KEY en Render.':'Maya error: '+e.message)});}});
 app.post('/api/ingles/evaluar',rateLimit(10),async function(r,s){var l=getLearner(r.body&&r.body.id);if(!l)return s.status(400).json({error:'sin alumno'});var msgs=(Array.isArray(r.body.messages)?r.body.messages:[]).slice(-20);try{var o=await evaluateLearner(l,msgs)||{error:'no eval'};s.json(o);}catch(e){
     console.error('[MAYA ERROR] Eval failed:', e.message);
     s.status(502).json({error:String(e.message||e)});

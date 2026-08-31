@@ -335,14 +335,14 @@ function isSpanish(text){
 }
 
 function pickVoice(lang){
-  var pool=lang==="es"?_esVoices:_enVoices;
-  if(!pool.length){
-    // Fallback to all voices
-    pool=speechSynthesis.getVoices().filter(function(v){return lang==="es"?/^es/.test(v.lang):/^en/.test(v.lang)});
-  }
+  var all=speechSynthesis.getVoices();
+  // Direct filter by lang tag
+  var pool=all.filter(function(v){return lang==="es"?/^es/.test(v.lang):/^en/.test(v.lang)});
+  if(!pool.length)pool=lang==="es"?_esVoices:_enVoices;
   if(!pool.length)return null;
-  // Prefer Google/Microsoft natural voices
-  var preferred=pool.filter(function(v){return/Google|Microsoft|Samantha|Paulina|Helena|Monica/.test(v.name)});
+  // Prefer natural-sounding voices
+  var preferred=pool.filter(function(v){return/Google|Microsoft|Samantha|Paulina|Helena|Monica|Google UK|Zira|David|Mark/.test(v.name)});
+  if(!preferred.length)preferred=pool;
   return preferred[0]||pool[0]||null;
 }
 
