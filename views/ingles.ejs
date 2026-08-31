@@ -234,7 +234,7 @@ var tField=G("tField"),tSend=G("tSend"),corrO=G("corrO"),permB=G("permB");
 var PK="maya_profiles",allP=JSON.parse(localStorage.getItem(PK)||"[]"),actId=localStorage.getItem("maya_active")||"";
 var hist=[],me=null,cOpen=false,cCnt=0;
 var autoSpeak=localStorage.getItem("maya_speak")!=="0";
-var autoMic=localStorage.getItem("maya_autom")!=="0";
+var autoMic=false;
 var freezing=false,pVoice=false,rec=null,listening=false,hText="";
 var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 
@@ -414,7 +414,7 @@ function startMic(){
   try{rec.start()}catch(e){setSub("No pude iniciar el microfono.");mL.textContent="Error al iniciar mic"}
 }
 function stopMic(){if(rec){try{rec.stop()}catch(e){}}}
-micBtn.onclick=function(){listening?stopMic():startMic()};
+micBtn.ontouchstart=function(e){e.preventDefault();listening?stopMic():startMic()};micBtn.onclick=function(){listening?stopMic():startMic()};
 
 // === Send message ===
 async function sendMessage(){
@@ -513,7 +513,7 @@ function welcome(){
   var un=p?p.name:"amigo";
   var hi="Heyy "+un+"! Soy Maya. Vamos a practicar ingles juntos. Yo te voy ensenando cosas nuevas y tu vas aprendiendo sin darte cuenta. Empecemos simple: como estas hoy?";
   hist.push({role:"assistant",text:hi});addBub("ai",hi);setSub(hi);saveChat();
-  if(autoSpeak)setTimeout(function(){speak(hi)},400);
+  if(autoSpeak&&localStorage.getItem("maya_spoken")){setTimeout(function(){speak(hi)},400);}else{localStorage.setItem("maya_spoken","1");}
 }
 
 // === Init ===
