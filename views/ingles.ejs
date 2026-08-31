@@ -392,14 +392,19 @@ function speak(text){
 
 // === Microphone ===
 function showPerm(){permB.classList.add("show");setTimeout(function(){permB.classList.remove("show")},5000)}
+var _micRetry=0;
 function startMic(){
   if(freezing)return;
   if(!SR){setSub("Tu navegador no soporta microfono. Usa Chrome o Edge.");return}
   speechSynthesis.cancel();setSpk(false);
   if(rec){try{rec.abort()}catch(e){}rec=null}
-  rec=new SR();rec.lang="en-US";rec.continuous=false;rec.interimResults=true;rec.maxAlternatives=1;
+  rec=new SR();
+  // Detect language: if last message was Spanish, use es-MX, else en-US
+  var lastMsg=hist.length?hist[hist.length-1].text:"";
+  rec.lang=isSpanish(lastMsg)?"es-MX":"en-US";
+  rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=1;
   rec.onstart=function(){
-    listening=true;hText="";
+    listening=true;hText="";_micRetry=0;
     micBtn.classList.add("rec");mL.classList.add("rec");
     mL.textContent="Escuchando...";wvEl.classList.add("on");
     sT.textContent="";setLstn(true);
@@ -409,22 +414,40 @@ function startMic(){
     for(var i=0;i<e.results.length;i++){
       var t=e.results[i][0].transcript;
       var conf=e.results[i][0].confidence;
-      if(e.results[i].isFinal){if(conf>0.05)fin+=(fin?" ":"")+t}else{inter=t}
+      if(e.results[i].isFinal){if(conf>0.03)fin+=(fin?" ":"")+t}else{inter=t}
     }
     if(fin)hText=fin;
     if(inter)sT.textContent=inter;
     if(hText)sT.textContent=hText;
   };
   rec.onerror=function(e){
+    if(e.error==="no-speech"||e.error==="aborted"){
+      // These are normal - just keep listening
+      return;
+    }
+    if(e.error==="network"){
+      // Google server unreachable - retry silently
+      _micRetry++;
+      if(_micRetry<3){setTimeout(function(){try{rec.start()}catch(ex){}},500);return}
+    }
     listening=false;micBtn.classList.remove("rec");mL.classList.remove("rec");
     wvEl.classList.remove("on");setLstn(false);
-    if(e.error==="not-allowed"){showPerm();mL.textContent="Permiso denegado"}
-    else if(e.error==="no-speech"){mL.textContent="No detecte voz. Habla mas fuerte."}
-    else{mL.textContent="Error: "+(e.error||"?")}
-    setTimeout(function(){mL.textContent="Toca para hablar"},3000);
+    if(e.error==="not-allowed"){showPerm();mL.textContent="Permiso denegado. Activa el microfono en ajustes."}
+    else if(e.error==="network"){mL.textContent="Sin conexion a Google. Intenta de nuevo."}
+    else{mL.textContent="Error: "+(e.error||"!")+". Toca para reintentar."}
+    setTimeout(function(){mL.textContent="Toca para hablar"},4000);
   };
   rec.onend=function(){
-    listening=false;micBtn.classList.remove("rec");mL.classList.remove("rec");
+    // If still supposed to be listening, auto-restart
+    if(listening){
+      try{rec.start()}catch(e){
+        listening=false;micBtn.classList.remove("rec");mL.classList.remove("rec");
+        wvEl.classList.remove("on");setLstn(false);
+        setTimeout(function(){mL.textContent="Toca para hablar"},2000);
+      }
+      return;
+    }
+    micBtn.classList.remove("rec");mL.classList.remove("rec");
     wvEl.classList.remove("on");setLstn(false);
     var heard=hText.trim();
     if(heard&&heard.length>2){
@@ -432,13 +455,26 @@ function startMic(){
       setTimeout(function(){mL.classList.remove("ok")},2000);
       sendMessage();
     }else{
-      mL.textContent="No te escuche bien. Intenta de nuevo o escribe.";
+      mL.textContent="No te escuche. Intenta mas fuerte o escribe.";
       setTimeout(function(){mL.textContent="Toca para hablar"},2500);
     }
   };
   try{rec.start()}catch(e){setSub("No pude iniciar el microfono.");mL.textContent="Error al iniciar mic"}
 }
-function stopMic(){if(rec){try{rec.stop()}catch(e){}}}
+function stopMic(){
+  listening=false;
+  if(rec){try{rec.abort()}catch(e){}rec=null}
+  micBtn.classList.remove("rec");mL.classList.remove("rec");
+  wvEl.classList.remove("on");setLstn(false);
+  var heard=hText.trim();
+  if(heard&&heard.length>2){
+    pVoice=true;mL.textContent="Enviando...";mL.classList.add("ok");
+    setTimeout(function(){mL.classList.remove("ok")},2000);
+    sendMessage();
+  }else{
+    mL.textContent="Toca para hablar";
+  }
+}
 micBtn.ontouchstart=function(e){e.preventDefault();listening?stopMic():startMic()};micBtn.onclick=function(){listening?stopMic():startMic()};
 
 // === Send message ===
