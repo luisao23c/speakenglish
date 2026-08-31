@@ -1,0 +1,14 @@
+{
+  "name": "maya-ingles",
+  "version": "1.0.0",
+  "description": "Maya — tutora de inglés conversacional (DeepSeek/OpenRouter gratuitos)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node start-server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2"
+  }
+}
